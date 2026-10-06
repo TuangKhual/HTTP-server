@@ -8,7 +8,10 @@
 int cilentHandler(int cilentSocket){
     ssize_t num = 0;
     char buffer[1024];
-    const char* hello = "HTTP/1.0 200 OK\r\n\r\n<h1>Hello World!</h1>";
+    char fileBuffer[1024];
+    size_t byteRead = 0;
+    const char* header = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n";
+    FILE *index_file;
 
     printf("\n---\n");
     while(1){
@@ -23,9 +26,18 @@ int cilentHandler(int cilentSocket){
             printf("Connection closed! \n");
             break;
         }
+        index_file = fopen("html-test.html", "r");
+        if (index_file == NULL){
+            perror("fopen()");
+            return -1;
+        }
 
         printf("RQUESTS:\n%s", buffer);
-        (void)write(cilentSocket, hello, strlen(hello));
+        (void)write(cilentSocket, header, strlen(header));
+        while ((byteRead = fread(fileBuffer, 1, sizeof(fileBuffer), index_file)) > 0){
+            (void)write(cilentSocket, fileBuffer, byteRead);
+        }
+        fclose(index_file);
         close(cilentSocket);
         break;
     }
