@@ -6,40 +6,11 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "stringFuncs.h"
 
-const char* CRLF = "\r\n";
+#define CRLF "\r\n"
 
-// Request line = Method SP Request-URI SP HTTP-Version CRLF    
-// SP = space
-
-typedef struct {
-    const char* data;
-    size_t len;
-} string;
-
-bool stringsEqual(const string* l, const string* r) {
-    size_t minLen = l->len < r->len ? l->len : r->len;
-    return l->len == r->len && memcmp(l->data, r->data, l->len) == 0;
-}
-
-string stringFromCstr(const char* str) {
-    string s;
-    s.len = strlen(str);
-    s.data = str;
-    return s;
-}
-
-void stringTrimSpaces(string* s){
-    // left trim;
-    while (*s->data == ' '){
-        s->data += 1;
-    }
-
-    // right trim
-    while (s->len > 0 && s->data[s->len - 1] == ' '){
-        s->len -= 1;
-    }
-}
+// Request line = Method Request-URI HTTP-Version CRLF    
 
 typedef struct {
     string method;
@@ -47,12 +18,33 @@ typedef struct {
     string version;
 } httpReqLine;
 
-typedef enum {
+typedef enum httpResponse {
     HTTP_RES_OK = 200,    
-    HTTP_RES_BAD_REQUEST = 500,
-    HTTP_RES_INTERNAL_SERVER_ERR = 400,
+    HTTP_RES_BAD_REQUEST = 400,
+    HTTP_RES_NOT_FOUND = 404,
+    HTTP_RES_INTERNAL_SERVER_ERR = 500,
 
-} httpResult;
+} httpResponse;
+
+const char* httpResponseToString(httpResponse res) {
+    switch (res){
+        case HTTP_RES_OK:
+            return "OK";
+        case HTTP_RES_BAD_REQUEST:
+            return "Bad Request";
+        case HTTP_RES_INTERNAL_SERVER_ERR:
+            return "Internal Server Error";
+        case HTTP_RES_NOT_FOUND:
+            return "Not Found";
+        default:
+            return "Unknown";
+    }
+}
+
+typedef struct {
+    const char* version;
+    httpResponse statusCode;
+} httpResponseLine;
 
 httpReqLine httpReqLineInit() {
     httpReqLine line;
@@ -60,66 +52,7 @@ httpReqLine httpReqLineInit() {
     return line;
 }
 
-typedef struct {
-    char* start;
-    size_t len;
-} stringView;
-
-typedef struct {
-    stringView* splits; // array of stringViews
-    size_t count;
-    size_t capacity;
-} stringSplit;
-
-static stringSplit splitString(const char* string, size_t len, const char* delim){
-    stringSplit res;
-    const char* start = string;
-    size_t res_i = 0;
-    size_t delimLen = strlen(delim);
-
-    res.capacity = 8;
-    res.splits = calloc(res.capacity, sizeof(stringView));
-    res.count = 0;
-
-    for (size_t i = 0; i < len; ++i){
-        if (i + delimLen < len && memcmp(&string[i], delim, delimLen) == 0){
-            res.splits[res_i].start = start;
-            res.splits[res_i].len = &string[i] - start;
-            res.count += 1;
-            res_i += 1;
-            start = &string[i + delimLen];
-            i += delimLen;
-
-            if (res.count == res.capacity){
-                res.capacity += 2;
-                stringView* temp = realloc(res.splits, sizeof(stringView) * res.capacity);
-                if (temp) {
-                    res.splits = temp;
-                } else {
-                    perror("realloc()");
-                    abort();
-                }
-            }
-        }
-    }
-    size_t lastLen = &string[len] - start;
-    if (lastLen > 0){
-        res.splits[res_i].start = start;
-        res.splits[res_i].len = lastLen;
-        res.count += 1;
-    }
-    return res;
-}
-
-static void freeSplits(stringSplit* splits){
-    if (splits){
-        free(splits->splits);
-        splits->splits = NULL;
-    }
-}
-
-httpResult parseReqLine(httpReqLine* reqLine, const char* buffer, size_t len){
-    char* split;
+httpResponse parseReqLine(httpReqLine* reqLine, const char* buffer, size_t len){
     if (!buffer || !reqLine){
         return HTTP_RES_INTERNAL_SERVER_ERR;
     }
@@ -143,14 +76,41 @@ httpResult parseReqLine(httpReqLine* reqLine, const char* buffer, size_t len){
     return HTTP_RES_OK;
 }
 
+string httpResponseGen(char* buffer, size_t bufferLen, httpResponse resp, size_t bodyLen){
+    string response;
+    response.len = 0;
+    memset(buffer, 0, bufferLen);
+
+    response.len += sprintf(buffer, "%s %d %s" CRLF, "HTTP/1.0", resp, httpResponseToString(resp));
+    response.len += sprintf(buffer + response.len, "Content-Length: %zu" CRLF, bodyLen);
+    response.len += sprintf(buffer + response.len, CRLF);
+    response.data = buffer;
+    return response;
+}
+
+bool httpSendResponse(int socket, string header, string body) {
+    ssize_t n = send(socket, header.data, header.len, 0);
+    if (n < 0) {
+        perror("send()");
+        return false;
+    }
+    if (n == 0){
+        fprintf(stderr, "send() returned 0\n");
+        return false;
+    }
+    n = send(socket, body.data, body.len, 0);
+    return true;
+}
+
 int cilentHandler(int cilentSocket){
     ssize_t num = 0;
     char buffer[1024];
     char fileBuffer[1024];
     size_t byteRead = 0;
     const char* header = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n";
-    const char* hello = "HTTP/1.0 200 OK\r\n\r\n<h1>Hello World!</h1>";
-    const char* bye = "HTTP/1.0 200 OK\r\n\r\n<h1>Bye World!</h1>";
+    string helloBody = stringFromCstr("<h1>Hello World!</h1>");
+    string byeBody = stringFromCstr("<h1>Bye World!</h1>");
+    string error404 = stringFromCstr("<p>ERROR 404 Not Found</p><p><a href=\"/\">back to home</a></p>");
     FILE *index_file;
 
     printf("\n---\n");
@@ -175,9 +135,9 @@ int cilentHandler(int cilentSocket){
         printf("RQUESTS:\n%s", buffer);
 
         stringSplit lines = splitString(buffer, num, CRLF);
-
         httpReqLine reqLine = httpReqLineInit();
-        httpResult res = parseReqLine(&reqLine, lines.splits[0].start, lines.splits[0].len);
+        httpResponse res = parseReqLine(&reqLine, lines.splits[0].start, lines.splits[0].len);
+        freeSplits(&lines);
         if (res != HTTP_RES_OK){
             // return correct error and error page
             printf("ERROR: failed to parse request line\n");
@@ -188,25 +148,33 @@ int cilentHandler(int cilentSocket){
         string routeBye = stringFromCstr("/bye");
 
         if (stringsEqual(&reqLine.uri, &routeHello)){
-            (void)write(cilentSocket, hello, strlen(hello));
+            if (!httpSendResponse(
+                cilentSocket,
+                httpResponseGen(buffer, sizeof(buffer), HTTP_RES_OK, helloBody.len), 
+                helloBody)) return -1;
         }
-
-        if (stringsEqual(&reqLine.uri, &routeBye)){
-            (void)write(cilentSocket, bye, strlen(bye));
+        else if (stringsEqual(&reqLine.uri, &routeBye)){
+            if (!httpSendResponse(                
+                cilentSocket,
+                httpResponseGen(buffer, sizeof(buffer), HTTP_RES_OK, byeBody.len), 
+                byeBody)) return -1;
         } else {
             printf("ERROR: unknown route: \"%.*s\"\n", (int)reqLine.uri.len, reqLine.uri.data);
+            httpSendResponse(                
+                cilentSocket,
+                httpResponseGen(buffer, sizeof(buffer), HTTP_RES_NOT_FOUND, error404.len), 
+                error404);
             return -1;
         }
 
-
+/*   reimplement later
         (void)write(cilentSocket, header, strlen(header));
         // Used to write the html file
         while ((byteRead = fread(fileBuffer, 1, sizeof(fileBuffer), index_file)) > 0){ 
             (void)write(cilentSocket, fileBuffer, byteRead);
         }
-
         fclose(index_file);
-        freeSplits(&lines);
+*/
         close(cilentSocket);
         break;
     }
@@ -214,6 +182,8 @@ int cilentHandler(int cilentSocket){
 
     return 0;
 }
+
+const int PORT = 5050;
 
 
 int main(void){
@@ -241,7 +211,7 @@ int main(void){
 
     (void)setsockopt(tcpSocket, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
     
-    sockAddr.sin_port = htons(5050); // Local host 
+    sockAddr.sin_port = htons(PORT); // Local host 
     sockAddr.sin_family = AF_INET;
     sockAddr.sin_addr.s_addr = INADDR_ANY;
 
@@ -259,7 +229,7 @@ int main(void){
         ret = 1;
         goto exit;
     }
-    printf("listen success \n");
+    printf("listen on localhost:%d/\n", PORT);
 
     while(1){
         printf("waiting for connection... \n");
