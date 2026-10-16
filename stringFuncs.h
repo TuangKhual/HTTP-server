@@ -1,25 +1,35 @@
+#pragma once
+
 #include <string.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <errno.h>
+#include <stdbool.h>
+#include <stdio.h>
 
 typedef struct {
     const char* data;
     size_t len;
-} string;
+} stringView;
 
-bool stringsEqual(const string* l, const string* r) {
+typedef struct {
+    stringView* splits; // array of stringViews
+    size_t count;
+    size_t capacity;
+} stringSplit;
+
+bool stringsEqual(const stringView* l, const stringView* r) {
     return l->len == r->len && memcmp(l->data, r->data, l->len) == 0;
 }
 
-string stringFromCstr(const char* str) {
-    string s;
+stringView stringFromCstr(const char* str) {
+    stringView s;
     s.len = strlen(str);
     s.data = str;
     return s;
 }
 
-void stringTrimSpaces(string* s){
+void stringTrimSpaces(stringView* s){
     // left trim;
     while (*s->data == ' '){
         s->data += 1;
@@ -31,16 +41,7 @@ void stringTrimSpaces(string* s){
     }
 }
 
-typedef struct {
-    const char* start;
-    size_t len;
-} stringView;
 
-typedef struct {
-    stringView* splits; // array of stringViews
-    size_t count;
-    size_t capacity;
-} stringSplit;
 
 static stringSplit splitString(const char* string, size_t len, const char* delim){
     stringSplit res;
@@ -54,7 +55,7 @@ static stringSplit splitString(const char* string, size_t len, const char* delim
 
     for (size_t i = 0; i < len; ++i){
         if (i + delimLen < len && memcmp(&string[i], delim, delimLen) == 0){
-            res.splits[res_i].start = start;
+            res.splits[res_i].data = start;
             res.splits[res_i].len = &string[i] - start;
             res.count += 1;
             res_i += 1;
@@ -75,7 +76,7 @@ static stringSplit splitString(const char* string, size_t len, const char* delim
     }
     size_t lastLen = &string[len] - start;
     if (lastLen > 0){
-        res.splits[res_i].start = start;
+        res.splits[res_i].data = start;
         res.splits[res_i].len = lastLen;
         res.count += 1;
     }

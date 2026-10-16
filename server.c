@@ -6,16 +6,21 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <linux/limits.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 #include "stringFuncs.h"
+#include "file.h"
 
 #define CRLF "\r\n"
 
 // Request line = Method Request-URI HTTP-Version CRLF    
 
 typedef struct {
-    string method;
-    string uri;
-    string version;
+    stringView method;
+    stringView uri;
+    stringView version;
 } httpReqLine;
 
 typedef enum httpResponse {
@@ -63,11 +68,11 @@ httpResponse parseReqLine(httpReqLine* reqLine, const char* buffer, size_t len){
         return HTTP_RES_BAD_REQUEST;
     }
 
-    reqLine->method.data = tokens.splits[0].start;
+    reqLine->method.data = tokens.splits[0].data;
     reqLine->method.len = tokens.splits[0].len;
-    reqLine->uri.data = tokens.splits[1].start;
+    reqLine->uri.data = tokens.splits[1].data;
     reqLine->uri.len = tokens.splits[1].len;
-    reqLine->version.data = tokens.splits[2].start;
+    reqLine->version.data = tokens.splits[2].data;
     reqLine->version.len = tokens.splits[2].len;
 
 
@@ -76,8 +81,8 @@ httpResponse parseReqLine(httpReqLine* reqLine, const char* buffer, size_t len){
     return HTTP_RES_OK;
 }
 
-string httpResponseGen(char* buffer, size_t bufferLen, httpResponse resp, size_t bodyLen){
-    string response;
+stringView httpResponseGen(char* buffer, size_t bufferLen, httpResponse resp, size_t bodyLen){
+    stringView response;
     response.len = 0;
     memset(buffer, 0, bufferLen);
 
@@ -88,7 +93,7 @@ string httpResponseGen(char* buffer, size_t bufferLen, httpResponse resp, size_t
     return response;
 }
 
-bool httpSendResponse(int socket, string header, string body) {
+bool httpSendResponse(int socket, stringView header, stringView body) {
     ssize_t n = send(socket, header.data, header.len, 0);
     if (n < 0) {
         perror("send()");
@@ -108,9 +113,9 @@ int cilentHandler(int cilentSocket){
     char fileBuffer[1024];
     size_t byteRead = 0;
     const char* header = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n";
-    string helloBody = stringFromCstr("<h1>Hello World!</h1>");
-    string byeBody = stringFromCstr("<h1>Bye World!</h1>");
-    string error404 = stringFromCstr("<p>ERROR 404 Not Found</p><p><a href=\"/\">back to home</a></p>");
+    stringView helloBody = stringFromCstr("<h1>Hello World!</h1>");
+    stringView byeBody = stringFromCstr("<h1>Bye World!</h1>");
+    stringView error404 = stringFromCstr("<p>ERROR 404 Not Found</p><p><a href=\"/\">back to home</a></p>");
     FILE *index_file;
 
     printf("\n---\n");
@@ -136,7 +141,7 @@ int cilentHandler(int cilentSocket){
 
         stringSplit lines = splitString(buffer, num, CRLF);
         httpReqLine reqLine = httpReqLineInit();
-        httpResponse res = parseReqLine(&reqLine, lines.splits[0].start, lines.splits[0].len);
+        httpResponse res = parseReqLine(&reqLine, lines.splits[0].data, lines.splits[0].len);
         freeSplits(&lines);
         if (res != HTTP_RES_OK){
             // return correct error and error page
@@ -144,8 +149,8 @@ int cilentHandler(int cilentSocket){
             return -1;
         }
 
-        string routeHello = stringFromCstr("/hello");
-        string routeBye = stringFromCstr("/bye");
+        stringView routeHello = stringFromCstr("/hello");
+        stringView routeBye = stringFromCstr("/bye");
 
         if (stringsEqual(&reqLine.uri, &routeHello)){
             if (!httpSendResponse(
@@ -185,7 +190,6 @@ int cilentHandler(int cilentSocket){
 
 const int PORT = 5050;
 
-
 int main(void){
     /* declare */
     int returnCode = 0;
@@ -194,6 +198,14 @@ int main(void){
     int ret = 0;
     int cilentSocket = 0;
     int enabled = true;
+
+    const char* webRoot = "./www";
+
+    fileData webRootData = getFileData(stringFromCstr(webRoot));
+    if (!webRootData.exists){
+        /* rwxr-xr-x*/
+        mkdir(webRoot, S_IEXEC | S_IWRITE | S_IREAD | S_IRGRP | S_IXGRP | S_IXOTH | S_IROTH);
+    }
 
     /* initialize */
     memset(&sockAddr, 0, sizeof(sockAddr));
