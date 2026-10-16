@@ -1,7 +1,7 @@
-CFLAGS = -Wall -Wextra -std=c99 -ggdb
+CFLAGS = -Wall -Wextra -std=gnu99 -ggdb
 
-server: server.c
-	gcc ${CFLAGS} server.c -o server
+server: server.c stringFuncs.h file.h
+	gcc ${CFLAGS} server.c stringFuncs.h file.h -o server
 
 .PHONY: clean
 
