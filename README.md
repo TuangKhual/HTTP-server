@@ -12,15 +12,15 @@ Lightweight multithreaded HTTP/1.1 server written in C on Linux. As of right now
   C complier
 
 Build and run:
-'''bash
+```bash
   gcc -Wall -Wextra -std=gnu99 -ggdb -pthread server.c stringFuncs.h file.h -o server
-  '''
+```
                                     or
-'''bash
+```bash
   make
-'''
-Then run: '''bash
+```
+Then run: ```bash
   ./server
-'''
+```
 
   Then open localhost:5050 in a browser
