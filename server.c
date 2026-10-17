@@ -10,6 +10,8 @@
 #include <sys/stat.h>
 #include <sys/sendfile.h>
 #include <fcntl.h>
+#include <pthread.h>
+#include <signal.h>
 
 #include "stringFuncs.h"
 #include "file.h"
@@ -90,7 +92,7 @@ stringView httpResponseGen(char* buffer, size_t bufferLen, httpResponse resp, si
     response.len = 0;
     memset(buffer, 0, bufferLen);
 
-    response.len += sprintf(buffer, "%s %d %s" CRLF, "HTTP/1.0", resp, httpResponseToString(resp));
+    response.len += sprintf(buffer, "%s %d %s" CRLF, "HTTP/1.1", resp, httpResponseToString(resp));
     response.len += sprintf(buffer + response.len, "Content-Length: %zu" CRLF, bodyLen);
     response.len += sprintf(buffer + response.len, CRLF);
     response.data = buffer;
@@ -171,8 +173,10 @@ cleanup:
     return ret;
 }
 
-int cilentHandler(int cilentSocket){
+void* cilentHandler(void* cilentSocketPtr){
+    int cilentSocket = (int)cilentSocketPtr;
     ssize_t num = 0;
+    int res = 0;
     char buffer[1024];
 
     printf("\n---\n");
@@ -182,7 +186,7 @@ int cilentHandler(int cilentSocket){
         num = read(cilentSocket, buffer, sizeof(buffer) - 1);
         if (num < 0){
             perror("read()");
-            return -1;
+            res = -1;
         }
         if (num == 0){
             printf("Connection closed! \n");
@@ -192,35 +196,39 @@ int cilentHandler(int cilentSocket){
         printf("RQUESTS:\n%s", buffer);
 
         stringSplit lines = splitString(buffer, num, CRLF);
+
+        if (lines.count < 1){
+            printf("ERROR: empty request\n");
+            res = -1;
+            break;
+        }
         httpReqLine reqLine = httpReqLineInit();
         httpResponse res = parseReqLine(&reqLine, lines.splits[0].data, lines.splits[0].len);
         freeSplits(&lines);
         if (res != HTTP_RES_OK){
             // return correct error and error page
             printf("ERROR: failed to parse request line\n");
-            return -1;
+            res = -1;
+            break;
         }
 
         stringView root = stringFromCstr("/");
 
         if (stringsEqual(&reqLine.uri, &root)){
             if (!httpServeFile(cilentSocket, stringFromCstr("test.html"))){
-                return -1;
+                res = -1;
+                break;
             }
         } else {
-            printf("ERROR: unknown route: \"%.*s\"\n", (int)reqLine.uri.len, reqLine.uri.data);
-            httpSendResponse(                
-                cilentSocket,
-                httpResponseGen(buffer, sizeof(buffer), HTTP_RES_NOT_FOUND, error404.len), 
-                error404);
-            return -1;
+            if (!httpServeFile(cilentSocket, reqLine.uri)){
+                res = -1;
+                break;
+            }
         }
-        close(cilentSocket);
-        break;
     }
+    close(cilentSocket);
     printf("\n---\n");
-
-    return 0;
+    pthread_exit ((void*)res);
 }
 
 const int PORT = 5050;
@@ -232,6 +240,11 @@ int main(void){
     int ret = 0;
     int cilentSocket = 0;
     int enabled = true;
+    pthread_t* threads = NULL;
+    size_t threadsCount = 0;
+    size_t threadsCap = 10;
+
+    threads = calloc(threadsCap, sizeof(pthread_t));
 
     fileData webRootData = getFileData(WEB_ROOT);
     if (!webRootData.exists){
@@ -277,13 +290,31 @@ int main(void){
     while(1){
         printf("waiting for connection... \n");
         cilentSocket = accept(tcpSocket, NULL, NULL);
-
+        pthread_t thread;
         printf("connected! \n");
-        returnCode = cilentHandler(cilentSocket);
+        returnCode = pthread_create(&thread, NULL, cilentHandler, (void*)cilentSocket);
+        if (returnCode != 0){
+            perror("pthread_create()");
+            continue;
+        }
+        threads[threadsCount] = thread;
+        ++threadsCount;
 
+        if (threadsCount + 1 > threadsCap){
+            threadsCap = threadsCap * 1.5;
+            pthread_t* newThreads = realloc(threads, threadsCap * sizeof(pthread_t));
+            if (!newThreads){
+                perror("realloc()");
+                goto exit;
+            }
+            threads = newThreads;
+        }
     }
 
 exit:
+    for (size_t i = 0; i < threadsCount; ++i){
+        pthread_kill(threads[i], SIGTERM);
+    }
     close(tcpSocket);
     return ret;
 }
