@@ -7,7 +7,7 @@
 
 typedef struct {
     bool exists;
-    
+    size_t size;
 } fileData;
 
 fileData getFileData(stringView filename){ // handles opening directories and other types not just using fopen()
@@ -24,6 +24,7 @@ fileData getFileData(stringView filename){ // handles opening directories and ot
     if (stat(buffer, &st) < 0) {
         return data;
     }
+    data.size = st.st_size;
     data.exists = true;
     return data;
 }

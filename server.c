@@ -8,12 +8,16 @@
 #include <stddef.h>
 #include <linux/limits.h>
 #include <sys/stat.h>
+#include <sys/sendfile.h>
 #include <fcntl.h>
 
 #include "stringFuncs.h"
 #include "file.h"
 
 #define CRLF "\r\n"
+
+const stringView WEB_ROOT = STRING_VIEW_FROM_LITERAL("./www/");
+static stringView error404 = STRING_VIEW_FROM_LITERAL("<p>ERROR 404 Not Found</p><p><a href=\"/\">back to home</a></p>");
 
 // Request line = Method Request-URI HTTP-Version CRLF    
 
@@ -107,16 +111,69 @@ bool httpSendResponse(int socket, stringView header, stringView body) {
     return true;
 }
 
+
+bool httpServeFile(int socket, stringView fileName){
+    char fileNameBuffer[PATH_MAX];
+    char buffer[64];
+    int inputFd = -1;
+    off_t sentFileOffset = 0;
+    size_t sent = 0;
+    bool ret = true;
+    ssize_t res = 0;
+    stringView header;
+
+    memset(fileNameBuffer, 0, sizeof(fileNameBuffer));
+    memcpy(fileNameBuffer, WEB_ROOT.data, WEB_ROOT.len);
+    memcpy(fileNameBuffer + WEB_ROOT.len - 1, fileName.data, fileName.len);
+
+    fileData fileData = getFileData(stringFromCstr(fileNameBuffer));
+
+    if (!fileData.exists){
+        (void)httpSendResponse(socket, httpResponseGen(buffer, sizeof(buffer), HTTP_RES_NOT_FOUND, error404.len), error404);
+        return false;
+    }
+
+    header = httpResponseGen(buffer, sizeof(buffer), HTTP_RES_OK, fileData.size);
+    
+    ssize_t n = send(socket, header.data, header.len, MSG_MORE);
+    if (n < 0) {
+        perror("send()");
+        ret = false;
+        goto cleanup;
+    }
+    if (n == 0){
+        fprintf(stderr, "send() returned 0\n");
+        ret = false;
+        goto cleanup;
+    }
+    inputFd = open(fileNameBuffer, O_RDONLY);
+    if (inputFd < 0){
+        (void)httpSendResponse(socket, httpResponseGen(buffer, sizeof(buffer), HTTP_RES_NOT_FOUND, error404.len), error404);
+        ret = false;
+        goto cleanup;     
+    }
+    // sendfile(2) sends the file without using any userspace memory
+    while (sent < fileData.size){
+        res = sendfile(socket, inputFd, &sentFileOffset, fileData.size);
+        if (res < 0){
+            printf("ERROR sendFile() failed for \"%s\": %s\n", fileNameBuffer, strerror(errno));
+            (void)httpSendResponse(socket, httpResponseGen(buffer, sizeof(buffer), HTTP_RES_INTERNAL_SERVER_ERR, error404.len), error404);
+            ret = false;
+            goto cleanup;              
+        }
+        sent += res;
+    }
+
+cleanup:
+    if (inputFd != -1) {
+        close(inputFd);        
+    }
+    return ret;
+}
+
 int cilentHandler(int cilentSocket){
     ssize_t num = 0;
     char buffer[1024];
-    char fileBuffer[1024];
-    size_t byteRead = 0;
-    const char* header = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n";
-    stringView helloBody = stringFromCstr("<h1>Hello World!</h1>");
-    stringView byeBody = stringFromCstr("<h1>Bye World!</h1>");
-    stringView error404 = stringFromCstr("<p>ERROR 404 Not Found</p><p><a href=\"/\">back to home</a></p>");
-    FILE *index_file;
 
     printf("\n---\n");
     while(1){
@@ -131,11 +188,6 @@ int cilentHandler(int cilentSocket){
             printf("Connection closed! \n");
             break;
         }
-        index_file = fopen("html-test.html", "r");
-        if (index_file == NULL){
-            perror("fopen()");
-            return -1;
-        }
 
         printf("RQUESTS:\n%s", buffer);
 
@@ -149,20 +201,12 @@ int cilentHandler(int cilentSocket){
             return -1;
         }
 
-        stringView routeHello = stringFromCstr("/hello");
-        stringView routeBye = stringFromCstr("/bye");
+        stringView root = stringFromCstr("/");
 
-        if (stringsEqual(&reqLine.uri, &routeHello)){
-            if (!httpSendResponse(
-                cilentSocket,
-                httpResponseGen(buffer, sizeof(buffer), HTTP_RES_OK, helloBody.len), 
-                helloBody)) return -1;
-        }
-        else if (stringsEqual(&reqLine.uri, &routeBye)){
-            if (!httpSendResponse(                
-                cilentSocket,
-                httpResponseGen(buffer, sizeof(buffer), HTTP_RES_OK, byeBody.len), 
-                byeBody)) return -1;
+        if (stringsEqual(&reqLine.uri, &root)){
+            if (!httpServeFile(cilentSocket, stringFromCstr("test.html"))){
+                return -1;
+            }
         } else {
             printf("ERROR: unknown route: \"%.*s\"\n", (int)reqLine.uri.len, reqLine.uri.data);
             httpSendResponse(                
@@ -171,15 +215,6 @@ int cilentHandler(int cilentSocket){
                 error404);
             return -1;
         }
-
-/*   reimplement later
-        (void)write(cilentSocket, header, strlen(header));
-        // Used to write the html file
-        while ((byteRead = fread(fileBuffer, 1, sizeof(fileBuffer), index_file)) > 0){ 
-            (void)write(cilentSocket, fileBuffer, byteRead);
-        }
-        fclose(index_file);
-*/
         close(cilentSocket);
         break;
     }
@@ -191,7 +226,6 @@ int cilentHandler(int cilentSocket){
 const int PORT = 5050;
 
 int main(void){
-    /* declare */
     int returnCode = 0;
     struct sockaddr_in sockAddr;
     int tcpSocket = 0;
@@ -199,15 +233,12 @@ int main(void){
     int cilentSocket = 0;
     int enabled = true;
 
-    const char* webRoot = "./www";
-
-    fileData webRootData = getFileData(stringFromCstr(webRoot));
+    fileData webRootData = getFileData(WEB_ROOT);
     if (!webRootData.exists){
         /* rwxr-xr-x*/
-        mkdir(webRoot, S_IEXEC | S_IWRITE | S_IREAD | S_IRGRP | S_IXGRP | S_IXOTH | S_IROTH);
+        mkdir(WEB_ROOT.data, S_IEXEC | S_IWRITE | S_IREAD | S_IRGRP | S_IXGRP | S_IXOTH | S_IROTH);
     }
 
-    /* initialize */
     memset(&sockAddr, 0, sizeof(sockAddr));
     tcpSocket = socket(
         AF_INET, /* The IPv4 (domain)*/

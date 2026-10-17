@@ -41,7 +41,8 @@ void stringTrimSpaces(stringView* s){
     }
 }
 
-
+#define STRING_VIEW_FROM_LITERAL(str) \
+    (stringView) { .data = str, .len = sizeof(str) }
 
 static stringSplit splitString(const char* string, size_t len, const char* delim){
     stringSplit res;
