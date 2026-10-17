@@ -124,9 +124,9 @@ bool httpServeFile(int socket, stringView fileName){
     ssize_t res = 0;
     stringView header;
 
-    memset(fileNameBuffer, 0, sizeof(fileNameBuffer));
     memcpy(fileNameBuffer, WEB_ROOT.data, WEB_ROOT.len);
     memcpy(fileNameBuffer + WEB_ROOT.len - 1, fileName.data, fileName.len);
+    fileNameBuffer[WEB_ROOT.len + fileName.len - 1] = 0;
 
     fileData fileData = getFileData(stringFromCstr(fileNameBuffer));
 
@@ -228,7 +228,7 @@ void* cilentHandler(void* cilentSocketPtr){
     }
     close(cilentSocket);
     printf("\n---\n");
-    pthread_exit ((void*)res);
+    return (void*)res;
 }
 
 const int PORT = 5050;

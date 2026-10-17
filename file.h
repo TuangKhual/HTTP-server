@@ -10,17 +10,17 @@ typedef struct {
     size_t size;
 } fileData;
 
-fileData getFileData(stringView filename){ // handles opening directories and other types not just using fopen()
+fileData getFileData(stringView fileName){ // handles opening directories and other types not just using fopen()
     char buffer[PATH_MAX];
     fileData data;
     struct stat st;
 
     data.exists = false;
-    if (filename.len > PATH_MAX) {
+    if (fileName.len > PATH_MAX) {
         return data;
     }
-    memset(buffer, 0, sizeof(buffer));
-    memcpy(buffer, filename.data, filename.len);
+    memcpy(buffer, fileName.data, fileName.len);
+    buffer[fileName.len] = 0;
     if (stat(buffer, &st) < 0) {
         return data;
     }
