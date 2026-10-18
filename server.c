@@ -37,6 +37,29 @@ typedef enum httpResponse {
 
 } httpResponse;
 
+typedef struct {
+    const char* uri;
+    const char* file;
+} route;
+
+static const route ROUTES[] = {
+    {"/", "/test.html"},
+    {"/dbz.jpg", "dbz.jpg"},
+    {"/song.mp3", "/song.mp3"}
+};
+
+static const size_t ROUTE_COUNT = sizeof(ROUTES) / sizeof(ROUTES[0]);
+
+const char* findRoute(stringView uri){
+    for (size_t i = 0; i < ROUTE_COUNT; ++i){
+        stringView route = stringFromCstr(ROUTES[i].uri);
+        if (stringsEqual(&uri, &route)){
+            return ROUTES[i].file;
+        }
+    }
+    return NULL;
+}
+
 const char* httpResponseToString(httpResponse res) {
     switch (res){
         case HTTP_RES_OK:
@@ -71,6 +94,7 @@ httpResponse parseReqLine(httpReqLine* reqLine, const char* buffer, size_t len){
 
     if (tokens.count != 3){
         printf("ERROR: invalid request line: expected 3 components, got %zu\n", tokens.count);
+        freeSplits(&tokens);
         return HTTP_RES_BAD_REQUEST;
     }
 
@@ -214,6 +238,18 @@ void* cilentHandler(void* cilentSocketPtr){
 
         stringView root = stringFromCstr("/");
 
+        const char* file = findRoute(reqLine.uri);
+        if (!file){
+            printf("ERROR: file not found\n");
+            (void)httpSendResponse(cilentSocket, httpResponseGen(buffer, sizeof(buffer), HTTP_RES_NOT_FOUND, error404.len), error404);
+            break;
+        }
+        if (!httpServeFile(cilentSocket, stringFromCstr(file))){
+            res = -1;
+            break;
+        }
+
+/*
         if (stringsEqual(&reqLine.uri, &root)){
             if (!httpServeFile(cilentSocket, stringFromCstr("test.html"))){
                 res = -1;
@@ -225,6 +261,7 @@ void* cilentHandler(void* cilentSocketPtr){
                 break;
             }
         }
+            */
     }
     close(cilentSocket);
     printf("\n---\n");
