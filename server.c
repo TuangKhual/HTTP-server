@@ -149,8 +149,8 @@ bool httpServeFile(int socket, stringView fileName){
     stringView header;
 
     memcpy(fileNameBuffer, WEB_ROOT.data, WEB_ROOT.len);
-    memcpy(fileNameBuffer + WEB_ROOT.len - 1, fileName.data, fileName.len);
-    fileNameBuffer[WEB_ROOT.len + fileName.len - 1] = 0;
+    memcpy(fileNameBuffer + WEB_ROOT.len, fileName.data, fileName.len);
+    fileNameBuffer[WEB_ROOT.len + fileName.len] = 0;
 
     fileData fileData = getFileData(stringFromCstr(fileNameBuffer));
 
@@ -236,8 +236,6 @@ void* cilentHandler(void* cilentSocketPtr){
             break;
         }
 
-        stringView root = stringFromCstr("/");
-
         const char* file = findRoute(reqLine.uri);
         if (!file){
             printf("ERROR: file not found\n");
@@ -248,20 +246,6 @@ void* cilentHandler(void* cilentSocketPtr){
             res = -1;
             break;
         }
-
-/*
-        if (stringsEqual(&reqLine.uri, &root)){
-            if (!httpServeFile(cilentSocket, stringFromCstr("test.html"))){
-                res = -1;
-                break;
-            }
-        } else {
-            if (!httpServeFile(cilentSocket, reqLine.uri)){
-                res = -1;
-                break;
-            }
-        }
-            */
     }
     close(cilentSocket);
     printf("\n---\n");

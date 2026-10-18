@@ -42,7 +42,7 @@ void stringTrimSpaces(stringView* s){
 }
 
 #define STRING_VIEW_FROM_LITERAL(str) \
-    (stringView) { .data = str, .len = sizeof(str) }
+    (stringView) { .data = str, .len = sizeof(str) - 1 }
 
 static stringSplit splitString(const char* string, size_t len, const char* delim){
     stringSplit res;
@@ -55,13 +55,13 @@ static stringSplit splitString(const char* string, size_t len, const char* delim
     res.count = 0;
 
     for (size_t i = 0; i < len; ++i){
-        if (i + delimLen < len && memcmp(&string[i], delim, delimLen) == 0){
+        if (i + delimLen <= len && memcmp(&string[i], delim, delimLen) == 0){
             res.splits[res_i].data = start;
             res.splits[res_i].len = &string[i] - start;
             res.count += 1;
             res_i += 1;
             start = &string[i + delimLen];
-            i += delimLen;
+            i += delimLen - 1;
 
             if (res.count == res.capacity){
                 res.capacity += 2;
