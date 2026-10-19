@@ -37,10 +37,15 @@ typedef struct {
 } route;
 
 static const route ROUTES[] = {
-    {"/", "/test.html"},
-    {"/dbz.jpg", "dbz.jpg"},
-    {"/ncs.mp3", "/ncs.mp3"},
-    {"/cat.mp4", "/cat.mp4"},
+    {"/", "/index.html"},
+    {"/greenDay.mp3", "/greenDay.mp3"},
+    {"/creep.mp3", "/creep.mp3"},
+    {"/princeRoyce.mp3", "/princeRoyce.mp3"},
+    {"/creep.png", "/creep.png"},
+    {"/greenDay.png", "/greenDay.png"},
+    {"/princeRoyce.png", "/princeRoyce.png"},
+    {"/music-player.js", "/music-player.js"},
+    {"/musicPlayer.css", "/musicPlayer.css"},
 };
 
 static const size_t ROUTE_COUNT = sizeof(ROUTES) / sizeof(ROUTES[0]);
