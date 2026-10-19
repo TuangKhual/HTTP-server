@@ -12,10 +12,11 @@
 #include <sys/sendfile.h>
 
 #include "stringFuncs.h"
-#include "server.c"
+#include "file.h"
+#include "server.h"
 
 #ifndef CRLF
-#define CRLF
+#define CRLF "\r\n"
 #endif
 
 typedef struct {
@@ -32,6 +33,25 @@ byteRange byteRangeInIt(){
     range.start = 0;
     range.end = 0;
     return range;
+}
+
+stringView httpResponseGenMedia(char* buffer, size_t bufferLen, httpResponse resp, size_t bodyLen, long start, long end, size_t fileSize){
+    stringView response;
+    response.len = 0;
+    memset(buffer, 0, bufferLen);
+
+    response.len += sprintf(buffer, "%s %d %s" CRLF, "HTTP/1.1", resp, httpResponseToString(resp));
+
+    if (resp == HTTP_RES_PARTIAL_CONTENT){
+        response.len += sprintf(buffer + response.len, "Content-Range: bytes %ld-%ld/%zu" CRLF, start, end, fileSize);
+    } else if (resp == HTTP_RES_RANGE_ERR){
+        response.len += sprintf(buffer + response.len, "Content-Range: bytes */%zu" CRLF, fileSize);
+    }
+    response.len += sprintf(buffer + response.len, "Content-Length: %zu" CRLF, bodyLen);
+    response.len += sprintf(buffer + response.len, "Accept-Ranges: bytes" CRLF);
+    response.len += sprintf(buffer + response.len, CRLF);
+    response.data = buffer;
+    return response;
 }
 
 static bool stringToNum(const char* str, size_t len, size_t* out){
@@ -131,6 +151,7 @@ byteRange parseRangeVal(stringView val, size_t size){
     return range;
 }
 
+
 bool findHeaderLine(stringView line, const char* name, size_t nameLen, stringView* output){
     if (line.len < nameLen + 1){
         return false;
@@ -168,22 +189,52 @@ byteRange parseRange(const stringView* lines, size_t totalLines, size_t size){
     return range;
 }
 
-stringView httpResponseGenMedia(char* buffer, size_t bufferLen, httpResponse resp, size_t bodyLen, long start, long end, size_t fileSize){
-    stringView response;
-    response.len = 0;
-    memset(buffer, 0, bufferLen);
+bool httpSend206(int socket, const char* path, size_t size, byteRange range){
+    char buffer[256];
+    stringView header;
+    int fd = -1;
+    bool ret = true;
+    off_t offset = (off_t)range.start;
+    size_t count = range.end - range.start + 1;
+    size_t sent = 0;
+    ssize_t res = 0;
 
-    response.len += sprintf(buffer, "%s %d %s" CRLF, "HTTP/1.1", resp, httpResponseToString(resp));
-
-    if (resp == HTTP_RES_PARTIAL_CONTENT){
-        response.len += sprintf(buffer + response.len, "Content-Range: bytes %ld-%ld/%zu" CRLF, start, end, fileSize);
-    } else if (resp == HTTP_RES_RANGE_ERR){
-        response.len += sprintf(buffer + response.len, "Content-Range: bytes */%zu" CRLF, fileSize);
+    fd = open(path, O_RDONLY);
+    if (fd < 0){
+        perror("open()");
+        return false;
     }
-    response.len += sprintf(buffer + response.len, "Content-Length: %zu" CRLF, bodyLen);
-    response.len += sprintf(buffer + response.len, "Accept-Ranges: bytes" CRLF);
-    response.len += sprintf(buffer + response.len, CRLF);
-    response.data = buffer;
-    return response;
+
+    header = httpResponseGenMedia(buffer, sizeof(buffer), HTTP_RES_PARTIAL_CONTENT, count, (long)range.start, (long)range.end, size);
+    ssize_t num = send(socket, header.data, header.len, MSG_MORE);
+    if (num < 0) {
+        perror("send()");
+        ret = false;
+        goto cleanup;
+    }
+    if (num == 0){
+        fprintf(stderr, "send() returned 0\n");
+        ret = false;
+        goto cleanup;
+    }
+
+    while (sent < count){
+        res = sendfile(socket, fd, &offset, count - sent);
+        if (res < 0){
+            fprintf(stderr, "sendfile() failed: %s\n: %s\n", path, strerror(errno));
+            ret = false;
+            goto cleanup;
+        }
+        if (res == 0){
+            break;
+        }
+        sent += (size_t)res;
+    } 
+
+cleanup:
+    if (fd != -1){
+        close(fd);
+    }
+    return ret;
 }
 
