@@ -15,6 +15,8 @@
 
 #include "stringFuncs.h"
 #include "file.h"
+#include "server.h"
+#include "media.h"
 
 #define CRLF "\r\n"
 
@@ -29,14 +31,6 @@ typedef struct {
     stringView version;
 } httpReqLine;
 
-typedef enum httpResponse {
-    HTTP_RES_OK = 200,    
-    HTTP_RES_BAD_REQUEST = 400,
-    HTTP_RES_NOT_FOUND = 404,
-    HTTP_RES_INTERNAL_SERVER_ERR = 500,
-
-} httpResponse;
-
 typedef struct {
     const char* uri;
     const char* file;
@@ -45,7 +39,8 @@ typedef struct {
 static const route ROUTES[] = {
     {"/", "/test.html"},
     {"/dbz.jpg", "dbz.jpg"},
-    {"/song.mp3", "/song.mp3"}
+    {"/song.mp3", "/song.mp3"},
+    {"/cat.mp4", "/cat.mp4"}
 };
 
 static const size_t ROUTE_COUNT = sizeof(ROUTES) / sizeof(ROUTES[0]);
@@ -64,12 +59,16 @@ const char* httpResponseToString(httpResponse res) {
     switch (res){
         case HTTP_RES_OK:
             return "OK";
+        case HTTP_RES_PARTIAL_CONTENT:
+            return "Partial Content";
         case HTTP_RES_BAD_REQUEST:
             return "Bad Request";
         case HTTP_RES_INTERNAL_SERVER_ERR:
             return "Internal Server Error";
         case HTTP_RES_NOT_FOUND:
             return "Not Found";
+        case HTTP_RES_RANGE_ERR:
+            return "Range Not Satisfiable";
         default:
             return "Unknown";
     }
@@ -105,7 +104,6 @@ httpResponse parseReqLine(httpReqLine* reqLine, const char* buffer, size_t len){
     reqLine->version.data = tokens.splits[2].data;
     reqLine->version.len = tokens.splits[2].len;
 
-
     freeSplits(&tokens);
 
     return HTTP_RES_OK;
@@ -138,15 +136,18 @@ bool httpSendResponse(int socket, stringView header, stringView body) {
 }
 
 
-bool httpServeFile(int socket, stringView fileName){
+bool httpServeFile(int socket, stringView fileName, const stringView* lines, size_t linesLen){
     char fileNameBuffer[PATH_MAX];
-    char buffer[64];
+    char buffer[256];
     int inputFd = -1;
-    off_t sentFileOffset = 0;
     size_t sent = 0;
     bool ret = true;
     ssize_t res = 0;
+
     stringView header;
+    off_t offset = 0;
+    byteRange range;
+    stringView resp;
 
     memcpy(fileNameBuffer, WEB_ROOT.data, WEB_ROOT.len);
     memcpy(fileNameBuffer + WEB_ROOT.len, fileName.data, fileName.len);
@@ -159,8 +160,21 @@ bool httpServeFile(int socket, stringView fileName){
         return false;
     }
 
+    range = parseRange(lines, linesLen, fileData.size);
+    if (range.exists){
+        if (!range.correct){
+            resp = httpResponseGenMedia(buffer, sizeof(buffer), HTTP_RES_RANGE_ERR, range.end - range.start + 1, (long)0, (long)0, fileData.size);
+            if (send(socket, resp.data, resp.len, 0) < 0){
+                perror("send()");
+                return false;
+            }
+            ret = true;
+            goto cleanup;
+        }
+        return httpSend206(socket, fileNameBuffer, fileData.size, range);
+    }
+
     header = httpResponseGen(buffer, sizeof(buffer), HTTP_RES_OK, fileData.size);
-    
     ssize_t n = send(socket, header.data, header.len, MSG_MORE);
     if (n < 0) {
         perror("send()");
@@ -180,12 +194,15 @@ bool httpServeFile(int socket, stringView fileName){
     }
     // sendfile(2) sends the file without using any userspace memory
     while (sent < fileData.size){
-        res = sendfile(socket, inputFd, &sentFileOffset, fileData.size);
+        res = sendfile(socket, inputFd, &offset, fileData.size - sent);
         if (res < 0){
             printf("ERROR sendFile() failed for \"%s\": %s\n", fileNameBuffer, strerror(errno));
             (void)httpSendResponse(socket, httpResponseGen(buffer, sizeof(buffer), HTTP_RES_INTERNAL_SERVER_ERR, error404.len), error404);
             ret = false;
             goto cleanup;              
+        }
+        if (res == 0){
+            break;
         }
         sent += res;
     }
@@ -202,20 +219,25 @@ void* cilentHandler(void* cilentSocketPtr){
     ssize_t num = 0;
     int res = 0;
     char buffer[1024];
+    char request[8192];
+    size_t total = 0;
+    //memset(buffer, 0, sizeof(buffer));
 
     printf("\n---\n");
     while(1){
-        memset(buffer, 0, sizeof(buffer));
+        
 
         num = read(cilentSocket, buffer, sizeof(buffer) - 1);
         if (num < 0){
             perror("read()");
             res = -1;
+            break;
         }
         if (num == 0){
             printf("Connection closed! \n");
             break;
         }
+        buffer[num] = '\0';
 
         printf("RQUESTS:\n%s", buffer);
 
@@ -228,7 +250,6 @@ void* cilentHandler(void* cilentSocketPtr){
         }
         httpReqLine reqLine = httpReqLineInit();
         httpResponse res = parseReqLine(&reqLine, lines.splits[0].data, lines.splits[0].len);
-        freeSplits(&lines);
         if (res != HTTP_RES_OK){
             // return correct error and error page
             printf("ERROR: failed to parse request line\n");
@@ -240,9 +261,11 @@ void* cilentHandler(void* cilentSocketPtr){
         if (!file){
             printf("ERROR: file not found\n");
             (void)httpSendResponse(cilentSocket, httpResponseGen(buffer, sizeof(buffer), HTTP_RES_NOT_FOUND, error404.len), error404);
+            freeSplits(&lines);
+            res = -1;
             break;
         }
-        if (!httpServeFile(cilentSocket, stringFromCstr(file))){
+        if (!httpServeFile(cilentSocket, stringFromCstr(file), lines.splits, lines.count)){
             res = -1;
             break;
         }
@@ -255,6 +278,7 @@ void* cilentHandler(void* cilentSocketPtr){
 const int PORT = 5050;
 
 int main(void){
+    signal(SIGPIPE, SIG_IGN);
     int returnCode = 0;
     struct sockaddr_in sockAddr;
     int tcpSocket = 0;
