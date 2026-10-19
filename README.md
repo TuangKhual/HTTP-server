@@ -4,11 +4,11 @@ Lightweight multithreaded HTTP/1.1 server written in C on Linux. As of right now
 ## Features:
 - Multithreaded - Each connection is handled by a separate POSIX (pthread) thread
 - Zero copy file transfer with sendfile
-- Proper HTTP responses (200, 400, 404, 500) status codes
+- Proper HTTP responses (200, 206, 400, 404, 416, 500) status codes
 - Custom string helpers for splitting and comparing strings with copying
 
 ## Requirements:
-- Linux as it uses 'sendfile' and '<linux/limits.h') 
+- Linux as it uses 'sendfile' and '<linux/limits.h>') 
 - C complier
 
 Build and run (Build with either or):
