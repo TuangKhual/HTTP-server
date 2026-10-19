@@ -33,6 +33,7 @@ void stringTrimSpaces(stringView* s){
     // left trim;
     while (*s->data == ' '){
         s->data += 1;
+        s->len -= 1;
     }
 
     // right trim
