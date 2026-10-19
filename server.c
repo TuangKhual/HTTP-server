@@ -39,8 +39,8 @@ typedef struct {
 static const route ROUTES[] = {
     {"/", "/test.html"},
     {"/dbz.jpg", "dbz.jpg"},
-    {"/song.mp3", "/song.mp3"},
-    {"/cat.mp4", "/cat.mp4"}
+    {"/ncs.mp3", "/ncs.mp3"},
+    {"/cat.mp4", "/cat.mp4"},
 };
 
 static const size_t ROUTE_COUNT = sizeof(ROUTES) / sizeof(ROUTES[0]);
@@ -219,14 +219,8 @@ void* cilentHandler(void* cilentSocketPtr){
     ssize_t num = 0;
     int res = 0;
     char buffer[1024];
-    char request[8192];
-    size_t total = 0;
-    //memset(buffer, 0, sizeof(buffer));
-
     printf("\n---\n");
     while(1){
-        
-
         num = read(cilentSocket, buffer, sizeof(buffer) - 1);
         if (num < 0){
             perror("read()");
@@ -266,9 +260,11 @@ void* cilentHandler(void* cilentSocketPtr){
             break;
         }
         if (!httpServeFile(cilentSocket, stringFromCstr(file), lines.splits, lines.count)){
+            freeSplits(&lines);
             res = -1;
             break;
         }
+        freeSplits(&lines);
     }
     close(cilentSocket);
     printf("\n---\n");
@@ -285,11 +281,6 @@ int main(void){
     int ret = 0;
     int cilentSocket = 0;
     int enabled = true;
-    pthread_t* threads = NULL;
-    size_t threadsCount = 0;
-    size_t threadsCap = 10;
-
-    threads = calloc(threadsCap, sizeof(pthread_t));
 
     fileData webRootData = getFileData(WEB_ROOT);
     if (!webRootData.exists){
@@ -339,27 +330,14 @@ int main(void){
         printf("connected! \n");
         returnCode = pthread_create(&thread, NULL, cilentHandler, (void*)cilentSocket);
         if (returnCode != 0){
-            perror("pthread_create()");
+            fprintf(stderr, "pthread_create(): %s\n", strerror(returnCode));
+            close(cilentSocket);    
             continue;
         }
-        threads[threadsCount] = thread;
-        ++threadsCount;
-
-        if (threadsCount + 1 > threadsCap){
-            threadsCap = threadsCap * 1.5;
-            pthread_t* newThreads = realloc(threads, threadsCap * sizeof(pthread_t));
-            if (!newThreads){
-                perror("realloc()");
-                goto exit;
-            }
-            threads = newThreads;
-        }
+        pthread_detach(thread);
     }
 
 exit:
-    for (size_t i = 0; i < threadsCount; ++i){
-        pthread_kill(threads[i], SIGTERM);
-    }
     close(tcpSocket);
     return ret;
 }
