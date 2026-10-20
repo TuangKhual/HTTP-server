@@ -20,4 +20,16 @@ Then run:
   ./server
 ```
 
-  Then open localhost:5050 in a browser
+Then open localhost:5050 in a browser
+
+## Run with Docker:
+```bash
+docker build -t myserver .
+docker run --init -p 5050:5050
+```
+
+You can change the song by putting the files in www/ and adding the route to the ROUTES table in server.c
+```c
+{"/song.mp3", "/song.mp3"},
+```
+Routes are hardcoded and so is the music player
