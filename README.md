@@ -25,7 +25,7 @@ Then open localhost:5050 in a browser
 ## Run with Docker:
 ```bash
 docker build -t myserver .
-docker run --init -p 5050:5050
+docker run --init -p 5050:5050 myserver
 ```
 
 You can change the song by putting the files in www/ and adding the route to the ROUTES table in server.c
