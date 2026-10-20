@@ -38,12 +38,15 @@ typedef struct {
 
 static const route ROUTES[] = {
     {"/", "/index.html"},
-    {"/greenDay.mp3", "/greenDay.mp3"},
-    {"/creep.mp3", "/creep.mp3"},
-    {"/princeRoyce.mp3", "/princeRoyce.mp3"},
-    {"/creep.png", "/creep.png"},
-    {"/greenDay.png", "/greenDay.png"},
-    {"/princeRoyce.png", "/princeRoyce.png"},
+
+    {"/Invincible.mp3", "/Invincible.mp3"},
+    {"/Blank.mp3", "/Blank.mp3"},
+    {"/Heroes.mp3", "/Heroes.mp3"},
+
+    {"/Heroes.png", "/Heroes.png"},
+    {"/Invincible.png", "/Invincible.png"},
+    {"/Blank.png", "/Blank.png"},
+    
     {"/music-player.js", "/music-player.js"},
     {"/musicPlayer.css", "/musicPlayer.css"},
 };
@@ -220,7 +223,7 @@ cleanup:
 }
 
 void* cilentHandler(void* cilentSocketPtr){
-    int cilentSocket = (int)cilentSocketPtr;
+    int cilentSocket = (int)(intptr_t)cilentSocketPtr;
     ssize_t num = 0;
     int res = 0;
     char buffer[1024];
@@ -273,7 +276,7 @@ void* cilentHandler(void* cilentSocketPtr){
     }
     close(cilentSocket);
     printf("\n---\n");
-    return (void*)res;
+    return (void*)(intptr_t)res;
 }
 
 const int PORT = 5050;
@@ -333,7 +336,7 @@ int main(void){
         cilentSocket = accept(tcpSocket, NULL, NULL);
         pthread_t thread;
         printf("connected! \n");
-        returnCode = pthread_create(&thread, NULL, cilentHandler, (void*)cilentSocket);
+        returnCode = pthread_create(&thread, NULL, cilentHandler, (void*)(intptr_t)cilentSocket);
         if (returnCode != 0){
             fprintf(stderr, "pthread_create(): %s\n", strerror(returnCode));
             close(cilentSocket);    
