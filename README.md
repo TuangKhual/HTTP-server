@@ -11,11 +11,7 @@ Lightweight multithreaded HTTP/1.1 server written in C on Linux. As of right now
 - Linux as it uses 'sendfile' and '<linux/limits.h>') 
 - C complier
 
-Build and run (Build with either or):
-```bash
-  gcc -Wall -Wextra -std=gnu99 -ggdb -pthread server.c stringFuncs.h file.h -o server
-```
-or
+Build and run:
 ```bash
   make
 ```
