@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Music Player</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.1/css/all.min.css">
+        <link rel="stylesheet" href="musicPlayer.css">
+    </head>
+    <body>
+        <div id="music-player">
+            <img id="image" src="record.jpg"/>
+            <div id="song"> Song</div>
+            <div id="song-artist"> Artist </div>
+
+            <input id="slider-song" type="range">
+
+            <div id="music-buttons">
+                <i id="back" class="fa-solid fa-backward fa-2x"></i>
+                <i id="play" class="fa-solid fa-play fa-3x"></i>
+                <i id="pause" class="fa-solid fa-pause fa-3x"></i>
+                <i id="next" class="fa-solid fa-forward fa-2x"></i>
+            </div>
+        </div>
+        <script src="music-player.js"></script>
+    </body>
+</html>
